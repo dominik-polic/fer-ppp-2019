@@ -1,10 +1,19 @@
+//Include required libraries
+
+
+//Define required constants
+#define DEBUG //
+
+
+//Initialize required variables and objects
 
 
 
 void setup() {
-  // put your setup code here, to run once:
+  //Initialize all libraries and devices
 
 }
+
 
 void loop() {
   //Check for incoming data on the nRF24 bus and add it to queue
