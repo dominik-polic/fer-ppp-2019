@@ -1,21 +1,102 @@
 //Include required libraries
-
-
-//Define required constants
-#define DEBUG //
-
-
-//Initialize required variables and objects
 #include <WiFiClientSecure.h>     //Needed for HTTPS connections
 #include <FirebaseArduino.h>      //Needed for receiving stream from firebase
 #include <ESP8266WiFi.h>          //Needed to onnect to WiFi
 #include <ESP8266HTTPClient.h>    //Needed to send / receive data from DB
 #include <ESP8266Ping.h>          //Needed to check internet conectivity
 #include <ESP8266WebServer.h>     //Needed for setup mode web server
+#include <NTPClient.h>            //Needed for NTP time sync 
+#include <WiFiUdp.h>              //Also needed for NTP
 #include <EEPROM.h>               //Needed to save / restore data using EEPROM
 
+//Define required constants
+#define DEBUG true
+#define FIREBASE_URL "elproms-ee435.firebaseio.com"
+#define FIREBASE_ROOT_PATH "/users"
+#define HTTP_TIMEOUT 5    //THIS IS IN SECONDS!!!!!!
+#define MAX_FIREBASE_RETRIES 5
+#define MAX_TOKEN_RETRIES 5
+#define MAX_WIFI_RETRIES 30
+#define PING_INTERVAL 20000 //20 seconds
+#define FIREBASE_FORCE_TOKEN_RELOAD_INTERVAL 3500000  //a bit less then 1 hour
+#define FIREBASE_STREAM_RELOAD_INTERVAL 1800000 //30 minutes
+#define DEFAULT_AP_SSID "Sensor gateway" //MAC address is appended to this to make it unique
+#define DEFAULT_AP_PASSWORD "12345678"
+
+//NTP config
+#define UTC_OFFSET_IN_SECONDS 0 //This can be changed to any timezone, but I recommend using central time to sync data between timezones
+#define NTP_HOST "time.google.com"
+//#define NTP_HOST "pool.ntp.org  //Some alternative hosts...
+#define NTP_REFRESH_INTERVAL 10000 //10 seconds
+
+//Define EEPROM structure and data
+#define EEPROM_ADDRESS 0
+struct {
+  boolean firstSetupDone = false;
+  char wifiSSID[100] = "";
+  char wifiPassword[100] = "";
+  char ACCESS_REFRESH_TOKEN[2048] = "NONE";
+  char ACCESS_UID[200] = "NONE";
+  char ACCESS_DEVICE_ID[50] = "NONE";
+} EEPROMdata;
+
+//Ping google's DNS server
+IPAddress PING_IP(8, 8, 8, 8);
+
+//NTP setup
+WiFiUDP ntpUDP;
+NTPClient timeClient(ntpUDP, NTP_HOST, UTC_OFFSET_IN_SECONDS, NTP_REFRESH_INTERVAL);
+
+//Global HTTPS clients to allocate fixed memory to improve performance
+WiFiClientSecure clientW;
+WiFiClientSecure sendClientW;
+HTTPClient sendClient;
+HTTPClient tokenClient;
+
+//Settings variables
+String wifiSSID = "";
+String wifiPassword = "";
+char ACCESS_ID_TOKEN[2048] = "";
+
+//Temporary counters and variables
+uint8_t tokenRetries = 0;
+boolean initSetupWifiDataReceived = false;
+boolean wifiConnected = false;
+boolean internetConnected = false;
+boolean tokenConnected = false;
+boolean firebaseStarted = false;
+unsigned long lastPing = 0;
+unsigned long lastFirebaseReload = 0;
+unsigned long lastFirebaseTokenTime = 0;
+unsigned long tempCounter = 0;
+unsigned long lastNTPSync = 0;
+
+//Define setup web server here and close it if possible.... should maybe find an alternative approach(?) found it, too lazy to comment ahahaha
+ESP8266WebServer setupServer(80);
+FirebaseArduino *firebaseInstance = new FirebaseArduino();
+
 void setup() {
-  //Initialize all libraries and devices
+
+  //Allow insecure HTTPS
+  clientW.setInsecure();
+  sendClientW.setInsecure();
+  clientW.setBufferSizes(4096, 4096);
+  sendClientW.setBufferSizes(512, 512);
+  sendClient.setReuse(true);
+  tokenClient.setReuse(true);
+  
+  //Initiate serial communication
+  if(DEBUG) Serial.begin(115200);
+  
+  //load saved settings from memory
+  loadSettings();
+
+  //If no user data is found, enter initial setup mode
+  if (!EEPROMdata.firstSetupDone) {
+    firstSetupMode();
+  } else {
+    normalSetup();
+  }
 
 }
 
@@ -27,6 +108,9 @@ void loop() {
   //Send data to nRF24 from queue if available
   nRF24ToProcess();
 
+  //WiFi, Firebase, NTP and other communication checks
+  networkActions();
+  
   //If full connection to the database is available receive data from it and send from queue to it
   if(databaseConnectionAvailable()){
 
