@@ -6,8 +6,13 @@
 
 
 //Initialize required variables and objects
-
-
+#include <WiFiClientSecure.h>     //Needed for HTTPS connections
+#include <FirebaseArduino.h>      //Needed for receiving stream from firebase
+#include <ESP8266WiFi.h>          //Needed to onnect to WiFi
+#include <ESP8266HTTPClient.h>    //Needed to send / receive data from DB
+#include <ESP8266Ping.h>          //Needed to check internet conectivity
+#include <ESP8266WebServer.h>     //Needed for setup mode web server
+#include <EEPROM.h>               //Needed to save / restore data using EEPROM
 
 void setup() {
   //Initialize all libraries and devices
