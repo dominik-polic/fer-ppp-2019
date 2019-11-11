@@ -11,8 +11,10 @@
 
 //Define required constants
 #define DEBUG true
-#define FIREBASE_URL "elproms-ee435.firebaseio.com"
+#define FIREBASE_URL "ppp-2019-dominik-polic.firebaseio.com"
 #define FIREBASE_ROOT_PATH "/users"
+#define FIREBASE_DOWNSTREAM_PATH "/to_gateway"
+#define FIREBASE_UPSTREAM_PATH "/from_gateway"
 #define HTTP_TIMEOUT 5    //THIS IS IN SECONDS!!!!!!
 #define MAX_FIREBASE_RETRIES 5
 #define MAX_TOKEN_RETRIES 5
@@ -107,9 +109,37 @@ void loop() {
 
   //Send data to nRF24 from queue if available
   nRF24ToProcess();
+  
+//START Network communication and stuff ------------------
+  //Sync time
+  timeClient.update();
 
-  //WiFi, Firebase, NTP and other communication checks
-  networkActions();
+  //Refresh ID token every once in a while
+  if (millis() > lastFirebaseTokenTime + FIREBASE_FORCE_TOKEN_RELOAD_INTERVAL && internetConnected && wifiConnected) {
+    getTokenWithRetry();
+    if (!tokenConnected && internetConnected) {
+      if(debug) Serial.println(F("Unresolvable problem with firebase! User account has probably changed. Initiating factory reset...."));
+      factoryReset(true);
+    }
+  }
+
+  //Check WiFi and Internet connection
+  pingNetwork(false);
+
+  //Request new token if needed
+  if (internetConnected && !tokenConnected) {
+    getTokenWithRetry();
+  }
+
+  //Reconnect to firebase if needed
+  if (tokenConnected && !firebaseStarted) {
+    reinitFirebase();
+  }
+
+  //Check for data from firebase
+  checkFirebaseData();
+
+//END Netowrk communication ad stuff ---------------------
   
   //If full connection to the database is available receive data from it and send from queue to it
   if(databaseConnectionAvailable()){
@@ -123,6 +153,54 @@ void loop() {
   }
 
 }
+
+//This reinitialises firebase stream and stuff
+void reinitFirebase() {
+  firebaseInstance->endStream();
+  for (uint8_t i = 0; i < MAX_FIREBASE_RETRIES; i++) {
+    if(debug) Seiral.println(String(F("Heap before firebase:"))+String(ESP.getFreeHeap()));
+    if(debug) Seiral.println(F("INIT/REINIT firebase connection"));
+    firebaseInstance->begin(FIREBASE_URL, String(ACCESS_ID_TOKEN));
+    if(debug) Seiral.println(String(F("Heap before stream but after begin:"))+String(ESP.getFreeHeap()));
+    firebaseInstance->stream(String(FIREBASE_ROOT_PATH) + "/" + String(EEPROMdata.ACCESS_UID) + "/" + String(DEVICE_TYPE) + "/" + String(EEPROMdata.ACCESS_DEVICE_ID) + String(FIREBASE_DOWNSTREAM_PATH));
+    long startTime = millis();
+    while (millis() <= startTime + 1000 && !firebaseInstance->success());
+    if(debug) Seiral.println(String(F("Heap after firebase:"))+String(ESP.getFreeHeap()));
+    if (firebaseInstance->success()) {
+      firebaseStarted = true;
+      if(debug) Seiral.println(F("SUCCESS! Firebase reinitialised :D"));
+      break;
+    } else {
+      firebaseStarted = false;
+      if(debug) Seiral.println(F("FAIL! Firebase reinit failed!"));
+    }
+
+  }
+
+}
+
+//This function checks network conectivity
+void pingNetwork(boolean force) {
+  if (millis() > lastPing + PING_INTERVAL || force) {
+    lastPing = millis();
+    checkWifiConnection();
+    if (!wifiConnected) {
+      if(debug) Seiral.println(F("PING determined no wifi connection!"));
+      wifiConnected = false;
+      internetConnected = false;
+      tokenConnected = false;
+      firebaseStarted = false;
+      return;
+    }
+    checkInternetConnection();
+    if (!internetConnected) {
+      if(debug) Seiral.println(F("No network! Mark firebase as offline!"));
+      firebaseStarted = false;
+      tokenConnected = false;
+    }
+  }
+}
+
 
 void databaseToProcess(){
   //Check for data to be sent to WiFi bus
@@ -272,4 +350,46 @@ void nRF24Send(int device_id, String data){
 void WiFiSend(int device_id, String data){
   //Send data to device
   
+}
+
+
+//START Firebase helper functions
+void sendFirebaseString(String path, String data) {
+  sendFirebaseDataHelper(String(FIREBASE_UPSTREAM_PATH) + "/" + path, "\"" + data + "\"");
+}
+
+void sendFirebaseStringNoDataFormatting(String path, String data) {
+  sendFirebaseDataHelper(String(FIREBASE_UPSTREAM_PATH) + "/" + path, data);
+}
+
+void sendFirebaseInt(String path, int data) {
+  sendFirebaseDataHelper(String(FIREBASE_UPSTREAM_PATH) + "/" + path, String(data));
+}
+
+void deleteFirebaseString(String path) {
+  sendFirebaseDataHelper(String(FIREBASE_DOWNSTREAM_PATH) + "/" + path, "null");
+}
+
+void deleteFirebaseTree() {
+  sendFirebaseDataHelper(String(FIREBASE_DOWNSTREAM_PATH), "null");
+}
+
+void sendFirebaseDataHelper(String path, String data) {
+  if(debug) Serial.print(String(F("Sending to: "))+path+", data: "+data+".......");
+
+  if (sendClient.begin(sendClientW, String("https://") + String(FIREBASE_URL) + String(FIREBASE_ROOT_PATH) + "/" + String(EEPROMdata.ACCESS_UID) + "/" + String(DEVICE_TYPE) + "/" + String(EEPROMdata.ACCESS_DEVICE_ID) + path + ".json?auth=" + String(ACCESS_ID_TOKEN))) {
+    sendClient.addHeader("Content-Type", "text/plain");
+    sendClient.addHeader("Connection", "close");
+    sendClient.setTimeout(HTTP_TIMEOUT * 1000);
+    if(debug) Serial.println(String(F("just before PUT! HEAP: "))+String(ESP.getFreeHeap()));
+    int httpCode = sendClient.PUT(data);
+    if (httpCode == 200) {
+      if(debug) Serial.println(F("SUCCESS"));
+    } else if (httpCode > 0) {
+      if(debug) Serial.pPrintln(F("ERROR.... remote server problem(?)"));
+    } else {
+      if(debug) Serial.pPrintln(F("ERROR... network problem(?)"));
+    }
+    sendClient.end();
+  }
 }
