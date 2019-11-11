@@ -25,6 +25,12 @@
 #define DEFAULT_AP_SSID "Sensor gateway" //MAC address is appended to this to make it unique
 #define DEFAULT_AP_PASSWORD "12345678"
 
+//Define Firebase realtime database and authentication information
+#define ACCESS_REFRESH_URL "https://securetoken.googleapis.com/v1/token?key=AIzaSyBLvDlBWPdulyt4tHrkjSfPK3twKpPV2DQ" //String after "key=" is the firebase Web API key
+#define ACCESS_TOKEN_POST_STRING_BEGIN "{\"grant_type\" : \"refresh_token\", \"refresh_token\" : \""
+#define ACCESS_TOKEN_POST_STRING_END "\" }"
+
+
 //NTP config
 #define UTC_OFFSET_IN_SECONDS 0 //This can be changed to any timezone, but I recommend using central time to sync data between timezones
 #define NTP_HOST "time.google.com"
