@@ -15,6 +15,7 @@
 #define FIREBASE_ROOT_PATH "/users"
 #define FIREBASE_DOWNSTREAM_PATH "/to_gateway"
 #define FIREBASE_UPSTREAM_PATH "/from_gateway"
+#define DEVICE_TYPE "SENSOR-GATEWAY"
 #define HTTP_TIMEOUT 5    //THIS IS IN SECONDS!!!!!!
 #define MAX_FIREBASE_RETRIES 5
 #define MAX_TOKEN_RETRIES 5
@@ -109,12 +110,12 @@ void setup() {
 
 //This function takes care of the initial setup
 void firstSetupMode() {
-  if(debug) Serial.println(F("ENRETING SETUP MODE!"));
+  if(DEBUG) Serial.println(F("ENRETING SETUP MODE!"));
 
   //Create semi-unique hotspot name:
   String apSSID = String(DEFAULT_AP_SSID) + " " + String(WiFi.macAddress());
   apSSID.replace(':', ' ');
-  if(debug) Serial.println(String(F("Created setup hotspot with SSID: "))+apSSID);
+  if(DEBUG) Serial.println(String(F("Created setup hotspot with SSID: "))+apSSID);
   //Create setup AP
   WiFi.softAP(apSSID, DEFAULT_AP_PASSWORD);
   WiFi.mode(WIFI_AP);
@@ -123,7 +124,7 @@ void firstSetupMode() {
   //This shows the network ESP8266 can see, to be implemented in the Android/web app for the gateway
   setupServer.on("/available-networks", HTTP_GET, []() {
 
-    if(debug) Serial.println("Scanning for networks.......");
+    if(DEBUG) Serial.println("Scanning for networks.......");
     int numberOfNetworks = WiFi.scanNetworks();
     String serverResponse = "{\"networks\":[";
     for (int i = 0; i < numberOfNetworks; i++) {
@@ -146,13 +147,13 @@ void firstSetupMode() {
   setupServer.handleClient();
 
   //Handle wifi data received.....
-  if(debug) Serial.println(F("Setup received...."));
+  if(DEBUG) Serial.println(F("Setup received...."));
   WiFi.begin(wifiSSID, wifiPassword);
 
   uint8_t counter_wifi = 0;
   while (WiFi.status() != WL_CONNECTED && counter_wifi <= MAX_WIFI_RETRIES) {
     setupServer.handleClient();
-    if(debug) Serial.println(F("Connecting to WiFi in SETUP mode....."));
+    if(DEBUG) Serial.println(F("Connecting to WiFi in SETUP mode....."));
     delay(500);
     counter_wifi++;
   }
@@ -160,13 +161,13 @@ void firstSetupMode() {
   //If connection succedded, disable initial setup mode and restart
   checkWifiConnection();
   if (wifiConnected) {
-    if(debug) Serial.println(F("SETUP SUCCESS!!"));
+    if(DEBUG) Serial.println(F("SETUP SUCCESS!!"));
     EEPROMdata.firstSetupDone = true;
     saveSettings();
     delay(1000);
     ESP.restart();
   } else {
-    if(debug) Serial.println(F("SETUP FAILED!!"));
+    if(DEBUG) Serial.println(F("SETUP FAILED!!"));
     EEPROMdata.firstSetupDone = false;
     saveSettings();
     delay(1000);
@@ -178,7 +179,7 @@ void firstSetupMode() {
 
 //This function prepares the device for use if it has been correctly configured
 void normalSetup() {
-  if(debug) Serial.println(F("Starting normal startup...."));
+  if(DEBUG) Serial.println(F("Starting normal startup...."));
   //Connect to WiFi
   WiFi.begin(wifiSSID, wifiPassword);
   WiFi.enableAP(false);
@@ -186,7 +187,7 @@ void normalSetup() {
   //Wait for connection, and if it fails after limited time enter offline mode!
   uint8_t counter_wifi = 0;
   while (WiFi.status() != WL_CONNECTED && counter_wifi <= MAX_WIFI_RETRIES) {
-    if(debug) Serial.println(F("Connecting to WiFi....."));
+    if(DEBUG) Serial.println(F("Connecting to WiFi....."));
     delay(500);
     counter_wifi++;
   }
@@ -194,16 +195,16 @@ void normalSetup() {
   //Update wifi connection status
   checkWifiConnection();
 
-  //Print IP address to serial if debug enabled
+  //Print IP address to serial if DEBUG enabled
   if (wifiConnected) {
-    if(debug) Serial.println(F("Connected to wifi!"));
+    if(DEBUG) Serial.println(F("Connected to wifi!"));
 
     //Check for internet connection on local WiFi
     checkInternetConnection();
     if (internetConnected) {
-      if(debug) Serial.println(F("Internet connection is available :D"));
+      if(DEBUG) Serial.println(F("Internet connection is available :D"));
     } else {
-      if(debug) Serial.println(F("Internet connection is unavailable :/"));
+      if(DEBUG) Serial.println(F("Internet connection is unavailable :/"));
     }
 
   }
@@ -237,7 +238,7 @@ void loop() {
   if (millis() > lastFirebaseTokenTime + FIREBASE_FORCE_TOKEN_RELOAD_INTERVAL && internetConnected && wifiConnected) {
     getTokenWithRetry();
     if (!tokenConnected && internetConnected) {
-      if(debug) Serial.println(F("Unresolvable problem with firebase! User account has probably changed. Initiating factory reset...."));
+      if(DEBUG) Serial.println(F("Unresolvable problem with firebase! User account has probably changed. Initiating factory reset...."));
       factoryReset(true);
     }
   }
@@ -277,7 +278,7 @@ void loop() {
 void handleSetup() {
   //If request is not formatted correctly, refuse it....
   if (setupServer.hasArg("wifiSSID") &&  setupServer.hasArg("wifiPassword")) {
-    if(debug) Serial.println("Setting up....");
+    if(DEBUG) Serial.println("Setting up....");
 
     if (setupServer.hasArg("ACCESS_REFRESH_TOKEN") && setupServer.hasArg("ACCESS_DEVICE_ID") && setupServer.hasArg("ACCESS_UID")) {
       setupServer.send(200, "text/plain", "SETUP-FULL");
@@ -287,7 +288,7 @@ void handleSetup() {
       String(ACCESS_TOKEN_POST_STRING_BEGIN + setupServer.arg("ACCESS_REFRESH_TOKEN") + ACCESS_TOKEN_POST_STRING_END).toCharArray(EEPROMdata.ACCESS_REFRESH_TOKEN, 2048);
       setupServer.arg("ACCESS_DEVICE_ID").toCharArray(EEPROMdata.ACCESS_DEVICE_ID, 50);
       setupServer.arg("ACCESS_UID").toCharArray(EEPROMdata.ACCESS_UID, 200);
-      if(debug) Serial.println("Setup full");
+      if(DEBUG) Serial.println("Setup full");
       saveSettings();
       //Mark received settings
       initSetupWifiDataReceived = true;
@@ -304,7 +305,7 @@ void handleSetup() {
       //Accept correct request
       wifiSSID = setupServer.arg("wifiSSID");
       wifiPassword = setupServer.arg("wifiPassword");
-      if(debug) Serial.println("Setup wifi only");
+      if(DEBUG) Serial.println("Setup wifi only");
 
     }
   } else {
@@ -333,9 +334,9 @@ boolean getTokenWithRetry() {
   }
 
   if (gotToken) {
-    if(debug) Serial.println(F("Successfully got connection token!"));
+    if(DEBUG) Serial.println(F("Successfully got connection token!"));
   } else {
-    if(debug) Serial.println(F("Successfully got connection token!"));
+    if(DEBUG) Serial.println(F("Successfully got connection token!"));
   }
   tokenConnected = gotToken;
   return gotToken;
@@ -344,25 +345,25 @@ boolean getTokenWithRetry() {
 
 //Function to get new ID token from the constant refresh token once the old one has expired
 boolean requestNewToken() {
-  if(debug) Serial.println(F("Requesting new id token....."));
+  if(DEBUG) Serial.println(F("Requesting new id token....."));
   boolean tokenSuccess = false; //Default to failed state
   firebaseInstance->endStream();
   firebaseStarted = false;
   //Try to connect to Firebase auth server
   if (tokenClient.begin(clientW, ACCESS_REFRESH_URL)) {
-    if(debug) Serial.println(F("Established connection to google auth server"));
+    if(DEBUG) Serial.println(F("Established connection to google auth server"));
 
     int httpCode = tokenClient.POST(String(EEPROMdata.ACCESS_REFRESH_TOKEN));
-    if(debug) Serial.println(String(F("httpCode: "))+String(httpCode));
+    if(DEBUG) Serial.println(String(F("httpCode: "))+String(httpCode));
     //If POST was successful, check HTTP status code and if token was granted store it
     if (httpCode > 0) {
       // HTTP header has been send and Server response header has been handled
-      if(debug) Serial.println(String(F("Google auth server responded with code: ")) + String(httpCode));
+      if(DEBUG) Serial.println(String(F("Google auth server responded with code: ")) + String(httpCode));
 
       // if token has been sent, update it!
       if (httpCode == 200) {
         tokenRetries = 0;
-        if(debug) Serial.println(F("SUCCESS! Got new token!"));
+        if(DEBUG) Serial.println(F("SUCCESS! Got new token!"));
         getTokenFromResponse(tokenClient, "id_token\": \"", '"');
         //Update token in firebase library
         firebaseInstance->updateAuth(ACCESS_ID_TOKEN);
@@ -370,18 +371,18 @@ boolean requestNewToken() {
         //Mark successfull token extraction
         tokenSuccess = true;
       } else if (httpCode == 400) {
-        if(debug) Serial.println("CODE 400 restart....");
+        if(DEBUG) Serial.println("CODE 400 restart....");
         ESP.restart();
       } else {
 
-        if(debug) Serial.println(F("POST did not return 200 SUCCESS, probably authentication problem?"));
+        if(DEBUG) Serial.println(F("POST did not return 200 SUCCESS, probably authentication problem?"));
       }
     } else {
-      if(debug) Serial.println(F("POST to google auth server failed!"));
+      if(DEBUG) Serial.println(F("POST to google auth server failed!"));
     }
     tokenClient.end();
   } else {
-    if(debug) Serial.println(F("Unable to connect to google auth server!"));
+    if(DEBUG) Serial.println(F("Unable to connect to google auth server!"));
   }
   return tokenSuccess;
 }
@@ -407,12 +408,12 @@ void loadSettings() {
   //User data
   wifiSSID = EEPROMdata.wifiSSID;
   wifiPassword = EEPROMdata.wifiPassword;
-  if(debug) Serial.println("Loaded settings from EEPROM....");
+  if(DEBUG) Serial.println("Loaded settings from EEPROM....");
 }
 
 //This part should save settings to memory
 void saveSettings() {
-  if(debug) Serial.println(F("Saving settings to EEPROM...."));
+  if(DEBUG) Serial.println(F("Saving settings to EEPROM...."));
 
   //User data
   wifiSSID.toCharArray(EEPROMdata.wifiSSID, 100);
@@ -510,28 +511,28 @@ void checkFirebaseData() {
 
   //Check for error
   if (firebaseInstance->failed()) {
-    if(debug) Serial.println(String(F("Firebase error: ")) + firebaseInstance->error());
+    if(DEBUG) Serial.println(String(F("Firebase error: ")) + firebaseInstance->error());
     checkWifiConnection();
     if (wifiConnected) {
       checkInternetConnection();
       if (internetConnected) {
         getTokenWithRetry();
         if (tokenConnected) {
-          if(debug) Serial.println(F("Restored token connection!"));
+          if(DEBUG) Serial.println(F("Restored token connection!"));
           reinitFirebase();
           if (firebaseStarted) {
-            if(debug) Serial.println(F("Restored firebase connection!"));
+            if(DEBUG) Serial.println(F("Restored firebase connection!"));
           } else {
-            if(debug) Serial.println(F("FAILED to restore firebase connection!"));
+            if(DEBUG) Serial.println(F("FAILED to restore firebase connection!"));
           }
         }
       } else {
-        if(debug) Serial.println(F("Lost internet connection!"));
+        if(DEBUG) Serial.println(F("Lost internet connection!"));
         tokenConnected = false;
       }
 
     } else {
-      if(debug) Serial.println(F("Lost WiFi connection!"));
+      if(DEBUG) Serial.println(F("Lost WiFi connection!"));
       internetConnected = false;
       tokenConnected = false;
     }
@@ -544,12 +545,12 @@ void checkFirebaseData() {
     FirebaseObject event = firebaseInstance->readEvent();
     String eventType = event.getString("type");
     eventType.toLowerCase();
-    if(debug) Serial.println("Firebase event: " + eventType);
+    if(DEBUG) Serial.println("Firebase event: " + eventType);
 
     //If new data is written to db, process it
     if (eventType == "put") {
       String path = event.getString("path");
-      if(debug) Serial.println("Firebase path: " + path);
+      if(DEBUG) Serial.println("Firebase path: " + path);
 
       //More than one packet is incomming...
       if (path == "/") {
@@ -559,7 +560,7 @@ void checkFirebaseData() {
       } else {
         String data = event.getString("data");
         if (data == "NOT-STRING") {
-          if(debug) Serial.println(String(F("ERROR PARSING DATA!!!! WRONG FORMAT AT PATH: ")) + path);
+          if(DEBUG) Serial.println(String(F("ERROR PARSING DATA!!!! WRONG FORMAT AT PATH: ")) + path);
         } else {
           
           //TODO - add this data to queue (path,data)
@@ -573,7 +574,7 @@ void checkFirebaseData() {
 
 //This resets the ESP8266 to factory setting and it enters setup mode
 void factoryReset(boolean full) {
-  if(debug) Serial.println(F("Initiating factory reset!!!!!"));
+  if(DEBUG) Serial.println(F("Initiating factory reset!!!!!"));
   resetSettings(full);
   ESP.restart();
 }
@@ -582,21 +583,21 @@ void factoryReset(boolean full) {
 void reinitFirebase() {
   firebaseInstance->endStream();
   for (uint8_t i = 0; i < MAX_FIREBASE_RETRIES; i++) {
-    if(debug) Seiral.println(String(F("Heap before firebase:"))+String(ESP.getFreeHeap()));
-    if(debug) Seiral.println(F("INIT/REINIT firebase connection"));
+    if(DEBUG) Serial.println(String(F("Heap before firebase:"))+String(ESP.getFreeHeap()));
+    if(DEBUG) Serial.println(F("INIT/REINIT firebase connection"));
     firebaseInstance->begin(FIREBASE_URL, String(ACCESS_ID_TOKEN));
-    if(debug) Seiral.println(String(F("Heap before stream but after begin:"))+String(ESP.getFreeHeap()));
+    if(DEBUG) Serial.println(String(F("Heap before stream but after begin:"))+String(ESP.getFreeHeap()));
     firebaseInstance->stream(String(FIREBASE_ROOT_PATH) + "/" + String(EEPROMdata.ACCESS_UID) + "/" + String(DEVICE_TYPE) + "/" + String(EEPROMdata.ACCESS_DEVICE_ID) + String(FIREBASE_DOWNSTREAM_PATH));
     long startTime = millis();
     while (millis() <= startTime + 1000 && !firebaseInstance->success());
-    if(debug) Seiral.println(String(F("Heap after firebase:"))+String(ESP.getFreeHeap()));
+    if(DEBUG) Serial.println(String(F("Heap after firebase:"))+String(ESP.getFreeHeap()));
     if (firebaseInstance->success()) {
       firebaseStarted = true;
-      if(debug) Seiral.println(F("SUCCESS! Firebase reinitialised :D"));
+      if(DEBUG) Serial.println(F("SUCCESS! Firebase reinitialised :D"));
       break;
     } else {
       firebaseStarted = false;
-      if(debug) Seiral.println(F("FAIL! Firebase reinit failed!"));
+      if(DEBUG) Serial.println(F("FAIL! Firebase reinit failed!"));
     }
 
   }
@@ -609,7 +610,7 @@ void pingNetwork(boolean force) {
     lastPing = millis();
     checkWifiConnection();
     if (!wifiConnected) {
-      if(debug) Seiral.println(F("PING determined no wifi connection!"));
+      if(DEBUG) Serial.println(F("PING determined no wifi connection!"));
       wifiConnected = false;
       internetConnected = false;
       tokenConnected = false;
@@ -618,7 +619,7 @@ void pingNetwork(boolean force) {
     }
     checkInternetConnection();
     if (!internetConnected) {
-      if(debug) Seiral.println(F("No network! Mark firebase as offline!"));
+      if(DEBUG) Serial.println(F("No network! Mark firebase as offline!"));
       firebaseStarted = false;
       tokenConnected = false;
     }
@@ -799,20 +800,20 @@ void deleteFirebaseTree() {
 }
 
 void sendFirebaseDataHelper(String path, String data) {
-  if(debug) Serial.print(String(F("Sending to: "))+path+", data: "+data+".......");
+  if(DEBUG) Serial.print(String(F("Sending to: "))+path+", data: "+data+".......");
 
   if (sendClient.begin(sendClientW, String("https://") + String(FIREBASE_URL) + String(FIREBASE_ROOT_PATH) + "/" + String(EEPROMdata.ACCESS_UID) + "/" + String(DEVICE_TYPE) + "/" + String(EEPROMdata.ACCESS_DEVICE_ID) + path + ".json?auth=" + String(ACCESS_ID_TOKEN))) {
     sendClient.addHeader("Content-Type", "text/plain");
     sendClient.addHeader("Connection", "close");
     sendClient.setTimeout(HTTP_TIMEOUT * 1000);
-    if(debug) Serial.println(String(F("just before PUT! HEAP: "))+String(ESP.getFreeHeap()));
+    if(DEBUG) Serial.println(String(F("just before PUT! HEAP: "))+String(ESP.getFreeHeap()));
     int httpCode = sendClient.PUT(data);
     if (httpCode == 200) {
-      if(debug) Serial.println(F("SUCCESS"));
+      if(DEBUG) Serial.println(F("SUCCESS"));
     } else if (httpCode > 0) {
-      if(debug) Serial.pPrintln(F("ERROR.... remote server problem(?)"));
+      if(DEBUG) Serial.println(F("ERROR.... remote server problem(?)"));
     } else {
-      if(debug) Serial.pPrintln(F("ERROR... network problem(?)"));
+      if(DEBUG) Serial.println(F("ERROR... network problem(?)"));
     }
     sendClient.end();
   }
