@@ -27,7 +27,7 @@
 #define PING_INTERVAL 20000 //20 seconds
 #define FIREBASE_FORCE_TOKEN_RELOAD_INTERVAL 3500000  //a bit less then 1 hour
 #define FIREBASE_STREAM_RELOAD_INTERVAL 1800000 //30 minutes
-#define DEFAULT_AP_SSID "Sensor gateway" //MAC address is appended to this to make it unique
+#define DEFAULT_AP_SSID "SensorGW" //MAC address is appended to this to make it unique
 #define DEFAULT_AP_PASSWORD "12345678"
 
 //Define Firebase realtime database and authentication information
@@ -56,6 +56,8 @@
 #define PRIORITY_HIGH 3
 #define PRIORITY_INSTANT_ONLY 4 //WIth this priority data is only sent if the connection is currently available, otherwise it's discarded. Useful for button presses that are only relevant at one specific moment.
 
+//Factory reset button...
+#define FACTORY_RESET_BTN 3
 
 //NTP config
 #define UTC_OFFSET_IN_SECONDS 0 //This can be changed to any timezone, but I recommend using central time to sync data between timezones
@@ -129,8 +131,7 @@ RF24Network network(radio);
 //nRF24 gateway config (this device)
 const uint16_t this_node = GATEWAY_ADDRESS; 
 
-void setup() {
-
+void setup() {  
   //Allow insecure HTTPS
   clientW.setInsecure();
   sendClientW.setInsecure();
@@ -141,14 +142,26 @@ void setup() {
   
   //Initiate serial communication
   if(DEBUG) Serial.begin(115200);
+
+  //Initialize EEPROM
+  EEPROM.begin(3072);  
   
   //load saved settings from memory
   loadSettings();
 
+  
+
   //If no user data is found, enter initial setup mode
   if (!EEPROMdata.firstSetupDone) {
+    if(DEBUG) Serial.println(EEPROMdata.wifiSSID);
     firstSetupMode();
   } else {
+    //Factory reset when holding a button on startup...
+    pinMode(FACTORY_RESET_BTN,INPUT_PULLUP);
+    if(digitalRead(FACTORY_RESET_BTN)==LOW){
+      if(DEBUG)Serial.println("Factory reset on boot caused by RESET BUTTON!!!");
+      factoryReset(true);
+    }
     normalSetup();
   }
 
@@ -157,7 +170,7 @@ void setup() {
 
 //This function takes care of the initial setup
 void firstSetupMode() {
-  if(DEBUG) Serial.println(F("ENRETING SETUP MODE!"));
+  if(DEBUG) Serial.println(F("ENTERING SETUP MODE!"));
 
   //Create semi-unique hotspot name:
   String apSSID = String(DEFAULT_AP_SSID) + " " + String(WiFi.macAddress());
@@ -808,6 +821,7 @@ void nRF24FromProcess(){
 
     //Add message to outgoing queue
     addToQueueWiFi(priority, data);
+    if(DEBUG)Serial.println(data);
 
   }
 }
@@ -816,13 +830,13 @@ String processnRF24Data(int priority, int from_address){
   int type = sendData.type;
   boolean awaitingZarez = false;
   String data = "NODE";
-  data+=from_address+"/"+timeClient.getEpochTime()+"-{";
+  data+=String(from_address)+"/"+String(timeClient.getEpochTime())+"-{";
   if(type == TYPE_DHT11 || type == TYPE_TEMPERATURE || type == TYPE_BMP280){
     if(awaitingZarez){
       data+=",\n";
       awaitingZarez=false;
     }
-    data+="\"temperature\":"+sendData.temperature;
+    data+="\"temperature\":"+String(sendData.temperature);
     awaitingZarez = true;
   }
   if(type == TYPE_DHT11 || type == TYPE_HUMIDITY){
@@ -830,7 +844,7 @@ String processnRF24Data(int priority, int from_address){
       data+=",\n";
       awaitingZarez=false;
     }
-    data+="\"humidity\":"+sendData.humidity;
+    data+="\"humidity\":"+String(sendData.humidity);
     awaitingZarez = true;
   }
   if(type == TYPE_BMP280){
@@ -838,7 +852,7 @@ String processnRF24Data(int priority, int from_address){
       data+=",\n";
       awaitingZarez=false;
     }
-    data+="\"pressure\":"+sendData.pressure;
+    data+="\"pressure\":"+String(sendData.pressure);
     awaitingZarez = true;
   }
   if(type == TYPE_LIGHT){
@@ -846,7 +860,7 @@ String processnRF24Data(int priority, int from_address){
       data+=",\n";
       awaitingZarez=false;
     }
-    data+="\"light\":"+sendData.light;
+    data+="\"light\":"+String(sendData.light);
     awaitingZarez = true;
   }
   if(type == TYPE_SWITCH){
@@ -854,7 +868,7 @@ String processnRF24Data(int priority, int from_address){
       data+=",\n";
       awaitingZarez=false;
     }
-    data+="\"switchActive\":"+sendData.switchActive?"true":"false";
+    data+="\"switchActive\":"+String(sendData.switchActive?"true":"false");
     awaitingZarez = true;
   }
   if(type == TYPE_BUTTON){
@@ -862,7 +876,7 @@ String processnRF24Data(int priority, int from_address){
       data+=",\n";
       awaitingZarez=false;
     }
-    data+="\"buttonPressed\":"+sendData.buttonPressed?"true":"false";
+    data+="\"buttonPressed\":"+String(sendData.buttonPressed?"true":"false");
     awaitingZarez = true;
   }
   if(type == TYPE_MOTION){
@@ -870,10 +884,11 @@ String processnRF24Data(int priority, int from_address){
       data+=",\n";
       awaitingZarez=false;
     }
-    data+="\"motionDetected\":"+sendData.motionDetected?"true":"false";
+    data+="\"motionDetected\":"+String(sendData.motionDetected?"true":"false");
     awaitingZarez = true;
   }
   data+="}";
+  return data;
 }
 
 void addToQueueWiFi(int priority, String data){

@@ -53,7 +53,7 @@ struct {
 #define LED_PIN 11
 #define BTN_PIN 12
 const uint16_t this_priority = PRIORITY_INSTANT_ONLY;
-const uint16_t this_type = TYPE_DHT11;
+const uint16_t this_type = TYPE_LIGHT_BTN;
 const uint16_t this_node = 02;   //Address of this node    
 const uint16_t other_node = GATEWAY_ADDRESS;  
 
