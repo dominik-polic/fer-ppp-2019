@@ -20,7 +20,7 @@
 #include <SPI.h>
 
 
-RF24 radio(9,10);                // nRF24L01(+) radio attached using Getting Started board 
+RF24 radio(2,4);                // nRF24L01(+) radio attached using Getting Started board 
 
 RF24Network network(radio);      // Network uses that radio
 const uint16_t this_node = 00;    // Address of our node in Octal format ( 04,031, etc)
@@ -48,10 +48,10 @@ const uint16_t other_node = 01;   // Address of the other node in Octal format
 
 #define DEBUG true
 
-//Standard packet structure
+//Standard packet structure - BEWARE the int format difference between AT328 and ESP8266!!
 struct {                  
-  unsigned int type = UNAVAILABLE_VALUE;
-  unsigned int priority = UNAVAILABLE_VALUE;
+  uint16_t type = UNAVAILABLE_VALUE;
+  uint16_t priority = UNAVAILABLE_VALUE;
   float temperature = UNAVAILABLE_VALUE;
   float humidity = UNAVAILABLE_VALUE;
   float pressure = UNAVAILABLE_VALUE;
