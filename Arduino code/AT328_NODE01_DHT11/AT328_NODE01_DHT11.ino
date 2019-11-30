@@ -20,11 +20,13 @@
 #define TYPE_SWITCH 6 //Digital switch
 #define TYPE_BUTTON 7 //Pushbutton
 #define TYPE_MOTION 8 //Motion sensor
+#define TYPE_LIGHT_BTN 9 //Pushbutton and incoming command light
 
 //Priority definitions
 #define PRIORITY_LOW 1
 #define PRIORITY_NORMAL 2
 #define PRIORITY_HIGH 3
+#define PRIORITY_INSTANT_ONLY 4 //WIth this priority data is only sent if the connection is currently available, otherwise it's discarded. Useful for button presses that are only relevant at one specific moment.
 
 #define GATEWAY_ADDRESS 00 //nRF24Network address of the gateway
 #define CHANNEL 90
