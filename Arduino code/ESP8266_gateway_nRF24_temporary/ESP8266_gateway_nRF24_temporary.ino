@@ -20,7 +20,7 @@
 #include <SPI.h>
 
 
-RF24 radio(2,4);                // nRF24L01(+) radio attached using Getting Started board 
+RF24 radio(9,10);                // nRF24L01(+) radio attached using Getting Started board 
 
 RF24Network network(radio);      // Network uses that radio
 const uint16_t this_node = 00;    // Address of our node in Octal format ( 04,031, etc)
@@ -82,10 +82,18 @@ void loop(void){
     RF24NetworkHeader header;        // If so, grab it and print it out
     
     network.read(header,&sendData,sizeof(sendData));
-    Serial.print("Received temperature :");
+    Serial.print("Received type :");
+    Serial.print(sendData.type);
+    Serial.print(", priority: ");
+    Serial.print(sendData.priority);
+    Serial.print(", temp: ");
     Serial.print(sendData.temperature);
-    Serial.print(", humidity: ");
+    Serial.print(", hum: ");
     Serial.print(sendData.humidity);
+    Serial.print(", pres: ");
+    Serial.print(sendData.pressure);
+    Serial.print(", motDet: ");
+    Serial.print(sendData.motionDetected);
     Serial.print(", from: ");
     Serial.println(header.from_node);
   }

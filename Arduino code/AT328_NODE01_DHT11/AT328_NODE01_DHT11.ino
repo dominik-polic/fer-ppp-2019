@@ -104,10 +104,10 @@ void loop() {
       error = true;
     }
     else {
-      if(DEBUG)Serial.print(F("Temperature: "));
-      if(DEBUG)Serial.print(event.temperature);
-      if(DEBUG)Serial.println(F("°C"));
       sendData.temperature = event.temperature;
+      if(DEBUG)Serial.print(F("Temperature: "));
+      if(DEBUG)Serial.print(sendData.temperature);
+      if(DEBUG)Serial.println(F("°C"));
     }
     dht.humidity().getEvent(&event);
     if (isnan(event.relative_humidity)) {
