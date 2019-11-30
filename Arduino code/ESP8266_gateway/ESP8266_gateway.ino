@@ -8,6 +8,10 @@
 #include <NTPClient.h>            //Needed for NTP time sync 
 #include <WiFiUdp.h>              //Also needed for NTP
 #include <EEPROM.h>               //Needed to save / restore data using EEPROM
+#include <RF24Network.h>          //Needed for nRF sensor network
+#include <RF24.h>                 //Needed for nRF sensor network
+#include <SPI.h>                  //Needed for nRF sensor network
+
 
 //Define required constants
 #define DEBUG true
@@ -31,6 +35,27 @@
 #define ACCESS_TOKEN_POST_STRING_BEGIN "{\"grant_type\" : \"refresh_token\", \"refresh_token\" : \""
 #define ACCESS_TOKEN_POST_STRING_END "\" }"
 
+//Sensor to gateway types (nRF24 bus)
+#define TYPE_DHT11 1 //Temperature and humidity sensor
+#define TYPE_TEMPERATURE 2 //Temperature only
+#define TYPE_HUMIDITY 3 //Humidity only
+#define TYPE_LIGHT 4 //Light sensor
+#define TYPE_BMP280 5 //Temperature and pressure sensor
+#define TYPE_SWITCH 6 //Digital switch
+#define TYPE_BUTTON 7 //Pushbutton
+#define TYPE_MOTION 8 //Motion sensor
+#define TYPE_LIGHT_BTN 9 //Pushbutton and incoming command light
+
+#define GATEWAY_ADDRESS 00 //nRF24Network address of the gateway
+#define CHANNEL 90
+#define UNAVAILABLE_VALUE 9999;
+
+//Priority definitions
+#define PRIORITY_LOW 1
+#define PRIORITY_NORMAL 2
+#define PRIORITY_HIGH 3
+#define PRIORITY_INSTANT_ONLY 4 //WIth this priority data is only sent if the connection is currently available, otherwise it's discarded. Useful for button presses that are only relevant at one specific moment.
+
 
 //NTP config
 #define UTC_OFFSET_IN_SECONDS 0 //This can be changed to any timezone, but I recommend using central time to sync data between timezones
@@ -48,6 +73,19 @@ struct {
   char ACCESS_UID[200] = "NONE";
   char ACCESS_DEVICE_ID[50] = "NONE";
 } EEPROMdata;
+
+//Standard nRF24 packet structure - BEWARE the int format difference between AT328 and ESP8266!!
+struct {                  
+  uint16_t type = UNAVAILABLE_VALUE;
+  uint16_t priority = UNAVAILABLE_VALUE;
+  float temperature = UNAVAILABLE_VALUE;
+  float humidity = UNAVAILABLE_VALUE;
+  float pressure = UNAVAILABLE_VALUE;
+  float light = UNAVAILABLE_VALUE;
+  boolean switchActive = false;
+  boolean buttonPressed = false;
+  boolean motionDetected = false;  
+} sendData;
 
 //Ping google's DNS server
 IPAddress PING_IP(8, 8, 8, 8);
@@ -84,6 +122,13 @@ unsigned long lastNTPSync = 0;
 ESP8266WebServer setupServer(80);
 FirebaseArduino *firebaseInstance = new FirebaseArduino();
 
+//Start attached nRF radio
+RF24 radio(2,4);
+RF24Network network(radio);
+
+//nRF24 gateway config (this device)
+const uint16_t this_node = GATEWAY_ADDRESS; 
+
 void setup() {
 
   //Allow insecure HTTPS
@@ -106,6 +151,8 @@ void setup() {
   } else {
     normalSetup();
   }
+
+  
 }
 
 //This function takes care of the initial setup
@@ -220,10 +267,18 @@ void normalSetup() {
   }
   timeClient.begin();
 
+  //nRF radio setup
+  SPI.begin();
+  radio.begin();
+  network.begin(CHANNEL, this_node);
+
 }
 
 
 void loop() {
+  //nRF24 netowrk update state
+  network.update();
+  
   //Check for incoming data on the nRF24 bus and add it to queue
   nRF24FromProcess();
 
@@ -716,18 +771,109 @@ boolean availableQueueWiFi(){
 
 
 void nRF24FromProcess(){
-  //Check for available data
-  int available_id = nRF24Available();
-  if(available_id){
-    int priority;
 
+  //If data is available process it...
+  if(network.available()) {
+    RF24NetworkHeader header;
+    network.read(header,&sendData,sizeof(sendData));
+
+    //DEBUG prints....
+    if(DEBUG){
+      Serial.print("Received type :");
+      Serial.print(sendData.type);
+      Serial.print(", prio: ");
+      Serial.print(sendData.priority);
+      Serial.print(", temp: ");
+      Serial.print(sendData.temperature);
+      Serial.print(", hum: ");
+      Serial.print(sendData.humidity);
+      Serial.print(", pres: ");
+      Serial.print(sendData.pressure);
+      Serial.print(", lig: ");
+      Serial.print(sendData.light);
+      Serial.print(", SW: ");
+      Serial.print(sendData.switchActive);
+      Serial.print(", BTN: ");
+      Serial.print(sendData.buttonPressed);
+      Serial.print(", MOT: ");
+      Serial.print(sendData.motionDetected);
+      Serial.print(", from: ");
+      Serial.println(header.from_node);
+    }
+    int priority = sendData.priority;
+    int from_address=header.from_node;
+    
     //Read data and calculate priority
-    String data = nRF24Read(available_id, &priority);
+    String data = processnRF24Data(priority,from_address);
 
     //Add message to outgoing queue
     addToQueueWiFi(priority, data);
-    
-  }  
+
+  }
+}
+
+String processnRF24Data(int priority, int from_address){
+  int type = sendData.type;
+  boolean awaitingZarez = false;
+  String data = "NODE";
+  data+=from_address+"/"+timeClient.getEpochTime()+"-{";
+  if(type == TYPE_DHT11 || type == TYPE_TEMPERATURE || type == TYPE_BMP280){
+    if(awaitingZarez){
+      data+=",\n";
+      awaitingZarez=false;
+    }
+    data+="\"temperature\":"+sendData.temperature;
+    awaitingZarez = true;
+  }
+  if(type == TYPE_DHT11 || type == TYPE_HUMIDITY){
+    if(awaitingZarez){
+      data+=",\n";
+      awaitingZarez=false;
+    }
+    data+="\"humidity\":"+sendData.humidity;
+    awaitingZarez = true;
+  }
+  if(type == TYPE_BMP280){
+    if(awaitingZarez){
+      data+=",\n";
+      awaitingZarez=false;
+    }
+    data+="\"pressure\":"+sendData.pressure;
+    awaitingZarez = true;
+  }
+  if(type == TYPE_LIGHT){
+    if(awaitingZarez){
+      data+=",\n";
+      awaitingZarez=false;
+    }
+    data+="\"light\":"+sendData.light;
+    awaitingZarez = true;
+  }
+  if(type == TYPE_SWITCH){
+    if(awaitingZarez){
+      data+=",\n";
+      awaitingZarez=false;
+    }
+    data+="\"switchActive\":"+sendData.switchActive?"true":"false";
+    awaitingZarez = true;
+  }
+  if(type == TYPE_BUTTON){
+    if(awaitingZarez){
+      data+=",\n";
+      awaitingZarez=false;
+    }
+    data+="\"buttonPressed\":"+sendData.buttonPressed?"true":"false";
+    awaitingZarez = true;
+  }
+  if(type == TYPE_MOTION){
+    if(awaitingZarez){
+      data+=",\n";
+      awaitingZarez=false;
+    }
+    data+="\"motionDetected\":"+sendData.motionDetected?"true":"false";
+    awaitingZarez = true;
+  }
+  data+="}";
 }
 
 void addToQueueWiFi(int priority, String data){
@@ -740,22 +886,6 @@ void addToQueuenRF24(int priority, String data){
   
 }
 
-
-int nRF24Available(){
-  //Check the bus for incoming data
-
-  return -1;
-}
-
-String nRF24Read(int device_id, int* priority_address){
-  //Read data from device
-
-  //Calculate data priority
-
-  //Convert to String in format: [priority] [device_id] [timestamp] [data]
-  priority_address = 0;
-  return "";
-}
 
 String databaseRead(int* priority_address){
   //Read data from database
