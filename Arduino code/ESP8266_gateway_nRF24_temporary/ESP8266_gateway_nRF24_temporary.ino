@@ -63,6 +63,8 @@ struct {
   boolean motionDetected = false;  
 } sendData;
 
+//Temporary variables
+int curr_bright = 0;
 
 void setup(void)
 {
@@ -104,5 +106,18 @@ void loop(void){
     Serial.print(sendData.motionDetected);
     Serial.print(", from: ");
     Serial.println(header.from_node);
+
+    if(header.from_node == 2){
+      curr_bright +=10;
+      if(curr_bright>255) curr_bright=0;
+      RF24NetworkHeader header2(2);
+      bool ok = network.write(header2,&curr_bright,sizeof(curr_bright));
+      if(DEBUG){
+        if (ok)
+          Serial.println("ok.");
+        else
+          Serial.println("failed.");
+      }
+    }    
   }
 }
