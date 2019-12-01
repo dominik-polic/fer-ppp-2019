@@ -56,6 +56,8 @@
 #define PRIORITY_HIGH 3
 #define PRIORITY_INSTANT_ONLY 4 //WIth this priority data is only sent if the connection is currently available, otherwise it's discarded. Useful for button presses that are only relevant at one specific moment.
 
+#define MAX_CONSECUTIVE_SENDS 10 //How many entries to send to db in a loop without running other checks
+#define MAX_DEVICES 6 //How many addresses are allowed to connect to the gateway, used for parsing data from db on connection established... (from 0 to MAX_DEVICES-1)
 //Factory reset button...
 #define FACTORY_RESET_BTN 3
 
@@ -626,14 +628,19 @@ void checkFirebaseData() {
       //More than one packet is incomming...
       if (path == "/") {
         
-        //TODO - handle multiple packets here!!!
-        if(DEBUG) Serial.println("Got this from fb: "+event.getString("data"));
+        for(int i = 1; i<MAX_DEVICES; i++){
+          String currentdata = event.getString("data/"+String(i));
+          Serial.println(String("Data for address ")+String(i)+":"+currentdata);
+          if(currentdata!="NOT-STRING"){
+            addRecordToFile(String(i)+"-"+splitString(currentdata,':',0),splitString(currentdata,':',1).toInt(),false);
+          }
+        }
+        deleteFirebaseTree();
       } else {
         String data = event.getString("data");
         if (data == "NOT-STRING") {
           if(DEBUG) Serial.println(String(F("ERROR PARSING DATA!!!! WRONG FORMAT AT PATH: ")) + path);
-        } else {
-          
+        } else {          
           addRecordToFile(splitString(path,'/',1)+"-"+splitString(data,':',0),splitString(data,':',1).toInt(),false);
           deleteFirebaseString(path);
         }
@@ -702,27 +709,31 @@ void databaseToProcess(){
   String path;
   String data;
   String filedata;
+  int counter = 0;
   //Send priority 1
   while(filedata = readRecordFromFile(PRIORITY_HIGH,true),filedata != NO_FILE){
     if(DEBUG)Serial.println("Priority 1 for FB: "+filedata);
     path = splitString(filedata,'-',0);
     data = splitString(filedata,'-',1);
     sendFirebaseStringNoDataFormatting(path,data);
-    return;
+    counter++;
+    if(counter>MAX_CONSECUTIVE_SENDS) return;
   }
   while(filedata = readRecordFromFile(PRIORITY_NORMAL,true),filedata != NO_FILE){
     if(DEBUG)Serial.println("Priority 2 for FB: "+filedata);
     path = splitString(filedata,'-',0);
     data = splitString(filedata,'-',1);
     sendFirebaseStringNoDataFormatting(path,data);
-    return;
+    counter++;
+    if(counter>MAX_CONSECUTIVE_SENDS) return;
   }
   while(filedata = readRecordFromFile(PRIORITY_LOW,true),filedata != NO_FILE){
     if(DEBUG)Serial.println("Priority 3 for FB: "+filedata);
     path = splitString(filedata,'-',0);
     data = splitString(filedata,'-',1);
     sendFirebaseStringNoDataFormatting(path,data);
-    return;
+    counter++;
+    if(counter>MAX_CONSECUTIVE_SENDS) return;
   }
 
 }
@@ -732,8 +743,16 @@ void nRF24ToProcess(){  //Data for nRF24 in format {address}-{int_value}
   String data;
   int address;
   int value;
+
+  //Send instant priority
+  while(data = readRecordFromFile(PRIORITY_INSTANT_ONLY,false),data != NO_FILE){
+    address = splitString(data,'-',0).toInt();
+    value = splitString(data,'-',1).toInt();
+    nRF24Send(address,value);
+    
+  }
   
-  //Send priority 1
+  //Send priority 3
   while(data = readRecordFromFile(PRIORITY_HIGH,false),data != NO_FILE){
     address = splitString(data,'-',0).toInt();
     value = splitString(data,'-',1).toInt();
@@ -753,7 +772,7 @@ void nRF24ToProcess(){  //Data for nRF24 in format {address}-{int_value}
     }
   }
   
-  //Send priority 3
+  //Send priority 1
   while(data = readRecordFromFile(PRIORITY_LOW,false),data != NO_FILE){
     address = splitString(data,'-',0).toInt();
     value = splitString(data,'-',1).toInt();
