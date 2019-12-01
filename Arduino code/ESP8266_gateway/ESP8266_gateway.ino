@@ -337,11 +337,8 @@ void loop() {
 //END Netowrk communication and stuff ---------------------
   
   //If full connection to the database is available receive data from it and send from queue to it
-  if(databaseConnectionAvailable()){
-
-    //Read data from database into incoming queue
-    databaseFromProcess();
-
+  if(firebaseStarted){
+    
     //Send data from outgoing queue to database
     databaseToProcess();
     
@@ -621,7 +618,6 @@ void checkFirebaseData() {
     String eventType = event.getString("type");
     eventType.toLowerCase();
     if(DEBUG) Serial.println("Firebase event: " + eventType);
-
     //If new data is written to db, process it
     if (eventType == "put") {
       String path = event.getString("path");
@@ -638,7 +634,7 @@ void checkFirebaseData() {
           if(DEBUG) Serial.println(String(F("ERROR PARSING DATA!!!! WRONG FORMAT AT PATH: ")) + path);
         } else {
           
-          addRecordToFile(path+"-"+splitString(data,':',0),splitString(data,':',1).toInt(),false);
+          addRecordToFile(splitString(path,'/',1)+"-"+splitString(data,':',0),splitString(data,':',1).toInt(),false);
           deleteFirebaseString(path);
         }
       }
@@ -702,50 +698,35 @@ void pingNetwork(boolean force) {
 
 
 void databaseToProcess(){
-  //Check for data to be sent to WiFi bus
-  if(availableQueueWiFi()){
-    //Send data to WiFi bus
-    
-    int device_id;
-    String data = readFromQueueWiFi(&device_id);
-    WiFiSend(device_id, data);
+  //Check for data to be sent to WiFi bus, send one by one....
+  String path;
+  String data;
+  String filedata;
+  //Send priority 1
+  while(filedata = readRecordFromFile(PRIORITY_HIGH,true),filedata != NO_FILE){
+    if(DEBUG)Serial.println("Priority 1 for FB: "+filedata);
+    path = splitString(filedata,'-',0);
+    data = splitString(filedata,'-',1);
+    sendFirebaseStringNoDataFormatting(path,data);
+    return;
   }
-  
+  while(filedata = readRecordFromFile(PRIORITY_NORMAL,true),filedata != NO_FILE){
+    if(DEBUG)Serial.println("Priority 2 for FB: "+filedata);
+    path = splitString(filedata,'-',0);
+    data = splitString(filedata,'-',1);
+    sendFirebaseStringNoDataFormatting(path,data);
+    return;
+  }
+  while(filedata = readRecordFromFile(PRIORITY_LOW,true),filedata != NO_FILE){
+    if(DEBUG)Serial.println("Priority 3 for FB: "+filedata);
+    path = splitString(filedata,'-',0);
+    data = splitString(filedata,'-',1);
+    sendFirebaseStringNoDataFormatting(path,data);
+    return;
+  }
+
 }
 
-void databaseFromProcess(){
-  
-  //Check for available data
-  if(databaseAvailable()){
-    int priority;
-
-    //Read data and calculate priority
-    String data = databaseRead(&priority);
-
-    //Add message to outgoing queue
-    addRecordToFile(data, priority, false); //toFirebase = false, means to RF24    
-    
-  }    
-}
-
-int databaseAvailable(){
-  //Check for new data in db
-
-  return false;
-}
-
-
-boolean databaseConnectionAvailable(){
-  //Check for wifi connection
-
-  //Check for internet availability
-
-  //Check for database connection
-
-  //Other required checks
-
-  return false;
-}
 
 void nRF24ToProcess(){  //Data for nRF24 in format {address}-{int_value}
   String data;
@@ -753,7 +734,7 @@ void nRF24ToProcess(){  //Data for nRF24 in format {address}-{int_value}
   int value;
   
   //Send priority 1
-  while(data = readRecordFromFile(1,false),data != NO_FILE){
+  while(data = readRecordFromFile(PRIORITY_HIGH,false),data != NO_FILE){
     address = splitString(data,'-',0).toInt();
     value = splitString(data,'-',1).toInt();
     if(!nRF24Send(address,value)){
@@ -763,7 +744,7 @@ void nRF24ToProcess(){  //Data for nRF24 in format {address}-{int_value}
   }
 
   //Send priority 2
-  while(data = readRecordFromFile(2,false),data != NO_FILE){
+  while(data = readRecordFromFile(PRIORITY_NORMAL,false),data != NO_FILE){
     address = splitString(data,'-',0).toInt();
     value = splitString(data,'-',1).toInt();
     if(!nRF24Send(address,value)){
@@ -773,7 +754,7 @@ void nRF24ToProcess(){  //Data for nRF24 in format {address}-{int_value}
   }
   
   //Send priority 3
-  while(data = readRecordFromFile(3,false),data != NO_FILE){
+  while(data = readRecordFromFile(PRIORITY_LOW,false),data != NO_FILE){
     address = splitString(data,'-',0).toInt();
     value = splitString(data,'-',1).toInt();
     nRF24Send(address,value);
@@ -820,15 +801,28 @@ void nRF24FromProcess(){
     int from_address=header.from_node;
     
     //Read data and calculate priority
-    String data = processnRF24Data(priority,from_address);
+    String data = processnRF24Data(from_address);
 
     //Add message to outgoing queue
-    addRecordToFile(data,priority,true); //toFirebase = true   
-
-  }
+    if(priority == PRIORITY_HIGH || priority == PRIORITY_NORMAL || priority == PRIORITY_LOW){
+      if(DEBUG)Serial.println("HIGH/NORMAL/LOW PRIORITY");
+      addRecordToFile(data,priority,true); //toFirebase = true   
+    }else if(priority == PRIORITY_INSTANT_ONLY){
+      if(firebaseStarted){
+        if(DEBUG)Serial.println("PRIORITY INSTANT ONLY, SENDING INSTANTLY!!!");
+        String path = splitString(data,'-',0);
+        String datasend = splitString(data,'-',1);
+        sendFirebaseStringNoDataFormatting(path,datasend);
+      }else{
+        if(DEBUG)Serial.println("PRIORITY INSTANT ONLY, BUT NO NETWORK, IGNORING!!!");
+      }
+    }else{
+      if(DEBUG)Serial.println("ERROR: UNKNOWN PRIORITY");
+    }
+   }  
 }
 
-String processnRF24Data(int priority, int from_address){
+String processnRF24Data(int from_address){
   int type = sendData.type;
   boolean awaitingZarez = false;
   String data = "NODE";
@@ -920,11 +914,6 @@ boolean nRF24Send(int device_id, int data){//ONLY ALLOW SENDING OF INTS TO NODES
   return ok;
 }
 
-void WiFiSend(int device_id, String data){
-  //Send data to device
-  
-}
-
 
 //START Firebase helper functions
 void sendFirebaseString(String path, String data) {
@@ -952,6 +941,7 @@ void sendFirebaseDataHelper(String path, String data) {
 
   if (sendClient.begin(sendClientW, String("https://") + String(FIREBASE_URL) + String(FIREBASE_ROOT_PATH) + "/" + String(EEPROMdata.ACCESS_UID) + "/" + String(DEVICE_TYPE) + "/" + String(EEPROMdata.ACCESS_DEVICE_ID) + path + ".json?auth=" + String(ACCESS_ID_TOKEN))) {
     sendClient.addHeader("Content-Type", "text/plain");
+    //sendClient.addHeader("Content-Type", "application/json");
     sendClient.addHeader("Connection", "close");
     sendClient.setTimeout(HTTP_TIMEOUT * 1000);
     if(DEBUG) Serial.println(String(F("just before PUT! HEAP: "))+String(ESP.getFreeHeap()));
@@ -959,7 +949,7 @@ void sendFirebaseDataHelper(String path, String data) {
     if (httpCode == 200) {
       if(DEBUG) Serial.println(F("SUCCESS"));
     } else if (httpCode > 0) {
-      if(DEBUG) Serial.println(F("ERROR.... remote server problem(?)"));
+      if(DEBUG) Serial.println(String(F("ERROR.... remote server problem(?), HTTPCODE: "))+String(httpCode));
     } else {
       if(DEBUG) Serial.println(F("ERROR... network problem(?)"));
     }
@@ -981,7 +971,7 @@ void addRecordToFile(String data, int priority, boolean toFirebase){
 String readRecordFromFile (int priority, boolean toFirebase){
   String data;
   String filename = (toFirebase?"/fb":"/rf")+String(priority)+".txt";
-  if(DEBUG)Serial.println("readRecord from file: "+filename);
+  //if(DEBUG)Serial.println("readRecord from file: "+filename);
   File currentFile = SPIFFS.open(filename, "r+");
   if(!currentFile){
     return NO_FILE;
@@ -991,7 +981,7 @@ String readRecordFromFile (int priority, boolean toFirebase){
   int l = currentFile.readBytesUntil('\n', buffer, sizeof(buffer));
   buffer[l] = 0;
   data=String(buffer);
-  if(DEBUG)Serial.println(String("Next line read: ")+data);
+  //if(DEBUG)Serial.println(String("Next line read: ")+data);
 
   //Delete this line by transfering all other lines to new file and deleting the current one and renaming the new one because why the hell not.....
   File tempFile = SPIFFS.open("/tempfile.txt","w+");
