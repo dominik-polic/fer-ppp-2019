@@ -60,7 +60,7 @@
 
 #define MAX_CONSECUTIVE_SENDS 10 //How many entries to send to db in a loop without running other checks
 #define MAX_DEVICES 6 //How many addresses are allowed to connect to the gateway, used for parsing data from db on connection established... (from 1 to MAX_DEVICES)
-//Factory reset button...
+//Factory reset button... If this pin is connected to GND on boot, factory reset will be performed (wifi and user credentials will be reeset, pending data will be intact)
 #define FACTORY_RESET_BTN 3
 
 //NTP config
