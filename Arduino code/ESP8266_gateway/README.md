@@ -1,7 +1,11 @@
 # Main gateway
 This is the source code for the main gateway. Bellow is the description of its functions and configuration.
 
+## Board
 ![Image here](../../Documentation/images/gateway.jpg)
+
+## Circuit
+![Image here](../../Documentation/images/gateway_bb.png)
 
 # Functionality
 The gateway is used to collect data from all available devices and send it to the firebase server. If internet connection is unavailable, all packets are sorted into 6 files in SPIFFS according to priority. 
