@@ -11,7 +11,7 @@
 #include <RF24Network.h>          //Needed for nRF sensor network
 #include <RF24.h>                 //Needed for nRF sensor network
 #include <SPI.h>                  //Needed for nRF sensor network
-
+#include "FS.h"                   //Needed for SPIFFS data storing
 
 //Define required constants
 #define DEBUG true
@@ -64,6 +64,10 @@
 #define NTP_HOST "time.google.com"
 //#define NTP_HOST "pool.ntp.org  //Some alternative hosts...
 #define NTP_REFRESH_INTERVAL 10000 //10 seconds
+
+//SPIFFS log config
+#define NO_FILE "no-record"
+
 
 //Define EEPROM structure and data
 #define EEPROM_ADDRESS 0
@@ -145,6 +149,9 @@ void setup() {
 
   //Initialize EEPROM
   EEPROM.begin(3072);  
+
+  //Begin SPIFFS (for saving data)
+  SPIFFS.begin();
   
   //load saved settings from memory
   loadSettings();
@@ -821,7 +828,7 @@ void nRF24FromProcess(){
 
     //Add message to outgoing queue
     addToQueueWiFi(priority, data);
-    if(DEBUG)Serial.println(data);
+    
 
   }
 }
@@ -833,7 +840,7 @@ String processnRF24Data(int priority, int from_address){
   data+=String(from_address)+"/"+String(timeClient.getEpochTime())+"-{";
   if(type == TYPE_DHT11 || type == TYPE_TEMPERATURE || type == TYPE_BMP280){
     if(awaitingZarez){
-      data+=",\n";
+      data+=",";
       awaitingZarez=false;
     }
     data+="\"temperature\":"+String(sendData.temperature);
@@ -841,7 +848,7 @@ String processnRF24Data(int priority, int from_address){
   }
   if(type == TYPE_DHT11 || type == TYPE_HUMIDITY){
     if(awaitingZarez){
-      data+=",\n";
+      data+=",";
       awaitingZarez=false;
     }
     data+="\"humidity\":"+String(sendData.humidity);
@@ -849,7 +856,7 @@ String processnRF24Data(int priority, int from_address){
   }
   if(type == TYPE_BMP280){
     if(awaitingZarez){
-      data+=",\n";
+      data+=",";
       awaitingZarez=false;
     }
     data+="\"pressure\":"+String(sendData.pressure);
@@ -857,7 +864,7 @@ String processnRF24Data(int priority, int from_address){
   }
   if(type == TYPE_LIGHT){
     if(awaitingZarez){
-      data+=",\n";
+      data+=",";
       awaitingZarez=false;
     }
     data+="\"light\":"+String(sendData.light);
@@ -865,15 +872,15 @@ String processnRF24Data(int priority, int from_address){
   }
   if(type == TYPE_SWITCH){
     if(awaitingZarez){
-      data+=",\n";
+      data+=",";
       awaitingZarez=false;
     }
     data+="\"switchActive\":"+String(sendData.switchActive?"true":"false");
     awaitingZarez = true;
   }
-  if(type == TYPE_BUTTON){
+  if(type == TYPE_BUTTON || type == TYPE_LIGHT_BTN){
     if(awaitingZarez){
-      data+=",\n";
+      data+=",";
       awaitingZarez=false;
     }
     data+="\"buttonPressed\":"+String(sendData.buttonPressed?"true":"false");
@@ -881,7 +888,7 @@ String processnRF24Data(int priority, int from_address){
   }
   if(type == TYPE_MOTION){
     if(awaitingZarez){
-      data+=",\n";
+      data+=",";
       awaitingZarez=false;
     }
     data+="\"motionDetected\":"+String(sendData.motionDetected?"true":"false");
@@ -892,6 +899,7 @@ String processnRF24Data(int priority, int from_address){
 }
 
 void addToQueueWiFi(int priority, String data){
+  if(DEBUG)Serial.println("Adding to queue: "+data);
   //Insert data into queue at the correct position
   
 }
@@ -962,4 +970,49 @@ void sendFirebaseDataHelper(String path, String data) {
     }
     sendClient.end();
   }
+}
+
+void addRecordToFile(String data, int priority, boolean toFirebase){
+  //Open the requested file
+  String filename = (toFirebase?"/fb":"/rf")+String(priority)+".txt";
+  if(DEBUG)Serial.println("addRecord to file: "+filename+", record: "+data);
+  File currentFile = SPIFFS.open(filename, "a+");
+  //Write supplied data t the end
+  currentFile.seek(0,SeekEnd);
+  currentFile.println(data);
+  currentFile.close();
+}
+
+String readRecordFromFile (int priority, boolean toFirebase){
+  String data;
+  String filename = (toFirebase?"/fb":"/rf")+String(priority)+".txt";
+  if(DEBUG)Serial.println("readRecord from file: "+filename);
+  File currentFile = SPIFFS.open(filename, "r+");
+  if(!currentFile){
+    return NO_FILE;
+  }
+  //Read one line...
+  char buffer[100]; 
+  int l = currentFile.readBytesUntil('\n', buffer, sizeof(buffer));
+  buffer[l] = 0;
+  data=String(buffer);
+  if(DEBUG)Serial.println(String("Next line read: ")+data);
+
+  //Delete this line by transfering all other lines to new file and deleting the current one and renaming the new one because why the hell not.....
+  File tempFile = SPIFFS.open("/tempfile.txt","w+");
+  while (currentFile.available()) {
+    tempFile.write(currentFile.read());
+  }
+  boolean deleteTemp = false;
+  if(tempFile.size() == 0) deleteTemp = true;
+  
+  currentFile.close();
+  tempFile.close();
+  SPIFFS.remove(filename);
+  if(deleteTemp)
+    SPIFFS.remove("/tempfile.txt");
+  else
+    SPIFFS.rename("/tempfile.txt",filename);
+  
+  return data;
 }
