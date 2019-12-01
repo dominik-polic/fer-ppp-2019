@@ -1031,7 +1031,6 @@ String readRecordFromFile (int priority, boolean toFirebase){
 
   //Delete this line by transfering all other lines to new file and deleting the current one and renaming the new one because why the hell not.....
   File tempFile = SPIFFS.open("/tempfile.txt","w+");
-  Serial.println("NEXT CHAR ON REFORMAT: "+currentFile.read());
   while (currentFile.available()) {
     tempFile.write(currentFile.read());
   }
@@ -1047,6 +1046,7 @@ String readRecordFromFile (int priority, boolean toFirebase){
   }else{
     SPIFFS.rename("/tempfile.txt",filename);
   }
+  delay(10);
   return data;
 }
 

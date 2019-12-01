@@ -53,7 +53,7 @@ const uint16_t this_priority = PRIORITY_NORMAL;
 const uint16_t this_type = TYPE_DHT11;
 const uint16_t this_node = 01;   //Address of this node    
 const uint16_t other_node = GATEWAY_ADDRESS;  
-const int measure_interval = 2000; //This is in ms
+const int measure_interval = 20000; //This is in ms
 
 //nRF24 module config
 RF24 radio(9,10);
