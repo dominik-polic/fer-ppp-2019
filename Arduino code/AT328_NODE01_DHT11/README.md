@@ -3,4 +3,8 @@ This is the source code for the NODE01. Bellow is the description of its functio
 
 Node 01 is used to send periodical measurements of temperature and humidity using DHT11 sensor.
 
+## Board
 ![Image here](../../Documentation/images/node01.jpg)
+
+## Circuit
+![Image here](../../Documentation/images/node01_bb.png)
