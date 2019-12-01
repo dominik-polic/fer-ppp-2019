@@ -724,7 +724,7 @@ void databaseFromProcess(){
     String data = databaseRead(&priority);
 
     //Add message to outgoing queue
-    addToQueuenRF24(priority, data);    
+    addRecordToFile(data, priority, false); //toFirebase = false, means to RF24    
     
   }    
 }
@@ -748,15 +748,43 @@ boolean databaseConnectionAvailable(){
   return false;
 }
 
-void nRF24ToProcess(){
-  //Check for data to be sent to nRF24 bus
-  if(availableQueuenRF24()){
-    //Send data to nRF24 bus
-    
-    int device_id;
-    String data = readFromQueuenRF24(&device_id);
-    nRF24Send(device_id, data);
+void nRF24ToProcess(){  //Data for nRF24 in format {address}-{int_value}
+  String data;
+  int address;
+  int value;
+  
+  //Send priority 1
+  while(data = readRecordFromFile(1,false),data != NO_FILE){
+    address = data.split("-")[0];
+    value = data.split("-")[1];
+    if(!nRF24Send(address,value)){
+      addRecordToFile(data,1,false);
+      break;
+    }
   }
+
+  //Send priority 2
+  while(data = readRecordFromFile(2,false),data != NO_FILE){
+    address = data.split("-")[0];
+    value = data.split("-")[1];
+    if(!nRF24Send(address,value)){
+      addRecordToFile(data,2,false);
+      break;
+    }
+  }
+  
+  //Send priority 3
+  while(data = readRecordFromFile(3,false),data != NO_FILE){
+    address = data.split("-")[0];
+    value = data.split("-")[1];
+    nRF24Send(address,value);
+    if(!nRF24Send(address,value)){
+      addRecordToFile(data,3,false);
+      break;
+    }
+  }
+
+  
 }
 
 String readFromQueuenRF24(int* device_id){
@@ -827,8 +855,7 @@ void nRF24FromProcess(){
     String data = processnRF24Data(priority,from_address);
 
     //Add message to outgoing queue
-    addToQueueWiFi(priority, data);
-    
+    addRecordToFile(data,priority,true); //toFirebase = true   
 
   }
 }
@@ -898,16 +925,8 @@ String processnRF24Data(int priority, int from_address){
   return data;
 }
 
-void addToQueueWiFi(int priority, String data){
-  if(DEBUG)Serial.println("Adding to queue: "+data);
-  //Insert data into queue at the correct position
-  
-}
 
-void addToQueuenRF24(int priority, String data){
-  //Insert data into queue at the correct position
-  
-}
+
 
 
 String databaseRead(int* priority_address){
@@ -920,9 +939,17 @@ String databaseRead(int* priority_address){
   return "";
 }
 
-void nRF24Send(int device_id, String data){
+boolean nRF24Send(int device_id, int data){//ONLY ALLOW SENDING OF INTS TO NODES!!
   //Send data to device
-  
+  RF24NetworkHeader header(device_id);
+  bool ok = network.write(header,&data,sizeof(data));
+  if(DEBUG){
+    if (ok)
+      Serial.println("Send data to nRF24 ok:"+data);
+    else
+      Serial.println("Send data to nRF24 failed.");
+  }
+  return ok;
 }
 
 void WiFiSend(int device_id, String data){
