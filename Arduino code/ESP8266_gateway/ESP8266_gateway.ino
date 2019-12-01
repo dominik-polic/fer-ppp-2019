@@ -12,6 +12,8 @@
 #include <RF24.h>                 //Needed for nRF sensor network
 #include <SPI.h>                  //Needed for nRF sensor network
 #include "FS.h"                   //Needed for SPIFFS data storing
+#include "ESP8266FtpServer.h"     //Needed for FTP server to access SPIFFS remotely
+
 
 //Define required constants
 #define DEBUG true
@@ -57,7 +59,7 @@
 #define PRIORITY_INSTANT_ONLY 4 //WIth this priority data is only sent if the connection is currently available, otherwise it's discarded. Useful for button presses that are only relevant at one specific moment.
 
 #define MAX_CONSECUTIVE_SENDS 10 //How many entries to send to db in a loop without running other checks
-#define MAX_DEVICES 6 //How many addresses are allowed to connect to the gateway, used for parsing data from db on connection established... (from 0 to MAX_DEVICES-1)
+#define MAX_DEVICES 6 //How many addresses are allowed to connect to the gateway, used for parsing data from db on connection established... (from 1 to MAX_DEVICES)
 //Factory reset button...
 #define FACTORY_RESET_BTN 3
 
@@ -108,6 +110,11 @@ WiFiClientSecure sendClientW;
 HTTPClient sendClient;
 HTTPClient tokenClient;
 
+//FTP server config
+FtpServer ftpSrv;
+#define FTP_USER "a"
+#define FTP_PASS "a"
+
 //Settings variables
 String wifiSSID = "";
 String wifiPassword = "";
@@ -147,13 +154,16 @@ void setup() {
   tokenClient.setReuse(true);
   
   //Initiate serial communication
-  if(DEBUG) Serial.begin(115200);
+  Serial.begin(115200);
 
   //Initialize EEPROM
   EEPROM.begin(3072);  
 
   //Begin SPIFFS (for saving data)
   SPIFFS.begin();
+
+  //Begin FTP server (for remote SPIFFS access)
+  ftpSrv.begin(FTP_USER,FTP_PASS); 
   
   //load saved settings from memory
   loadSettings();
@@ -298,18 +308,29 @@ void normalSetup() {
 
 
 void loop() {
+  
+  //Loop FTP server
+  ftpSrv.handleFTP();
+  ftpSrv.handleFTP();
+  ftpSrv.handleFTP();
+  
   //nRF24 netowrk update state
   network.update();
   
   //Check for incoming data on the nRF24 bus and add it to queue
   nRF24FromProcess();
-
+  
   //Send data to nRF24 from queue if available
   nRF24ToProcess();
   
 //START Network communication and stuff ------------------
   //Sync time
   timeClient.update();
+  
+  //Loop FTP server
+  ftpSrv.handleFTP();
+  ftpSrv.handleFTP();
+  ftpSrv.handleFTP();
 
   //Refresh ID token every once in a while
   if (millis() > lastFirebaseTokenTime + FIREBASE_FORCE_TOKEN_RELOAD_INTERVAL && internetConnected && wifiConnected) {
@@ -327,7 +348,6 @@ void loop() {
   if (internetConnected && !tokenConnected) {
     getTokenWithRetry();
   }
-
   //Reconnect to firebase if needed
   if (tokenConnected && !firebaseStarted) {
     reinitFirebase();
@@ -337,6 +357,11 @@ void loop() {
   checkFirebaseData();
 
 //END Netowrk communication and stuff ---------------------
+
+  //Loop FTP server
+  ftpSrv.handleFTP();
+  ftpSrv.handleFTP();
+  ftpSrv.handleFTP();
   
   //If full connection to the database is available receive data from it and send from queue to it
   if(firebaseStarted){
@@ -628,7 +653,7 @@ void checkFirebaseData() {
       //More than one packet is incomming...
       if (path == "/") {
         
-        for(int i = 1; i<MAX_DEVICES; i++){
+        for(int i = 1; i<=MAX_DEVICES; i++){
           String currentdata = event.getString("data/"+String(i));
           Serial.println(String("Data for address ")+String(i)+":"+currentdata);
           if(currentdata!="NOT-STRING"){
@@ -748,8 +773,7 @@ void nRF24ToProcess(){  //Data for nRF24 in format {address}-{int_value}
   while(data = readRecordFromFile(PRIORITY_INSTANT_ONLY,false),data != NO_FILE){
     address = splitString(data,'-',0).toInt();
     value = splitString(data,'-',1).toInt();
-    nRF24Send(address,value);
-    
+    nRF24Send(address,value);    
   }
   
   //Send priority 3
@@ -757,7 +781,7 @@ void nRF24ToProcess(){  //Data for nRF24 in format {address}-{int_value}
     address = splitString(data,'-',0).toInt();
     value = splitString(data,'-',1).toInt();
     if(!nRF24Send(address,value)){
-      addRecordToFile(data,1,false);
+      addRecordToFile(data,PRIORITY_HIGH,false);
       break;
     }
   }
@@ -767,7 +791,10 @@ void nRF24ToProcess(){  //Data for nRF24 in format {address}-{int_value}
     address = splitString(data,'-',0).toInt();
     value = splitString(data,'-',1).toInt();
     if(!nRF24Send(address,value)){
-      addRecordToFile(data,2,false);
+      addRecordToFile(data,PRIORITY_NORMAL,false);
+      Serial.print("BEFORE");
+      Serial.print(data);
+      Serial.print("AFTER");
       break;
     }
   }
@@ -778,7 +805,7 @@ void nRF24ToProcess(){  //Data for nRF24 in format {address}-{int_value}
     value = splitString(data,'-',1).toInt();
     nRF24Send(address,value);
     if(!nRF24Send(address,value)){
-      addRecordToFile(data,3,false);
+      addRecordToFile(data,PRIORITY_LOW,false);
       break;
     }
   }
@@ -1000,10 +1027,11 @@ String readRecordFromFile (int priority, boolean toFirebase){
   int l = currentFile.readBytesUntil('\n', buffer, sizeof(buffer));
   buffer[l] = 0;
   data=String(buffer);
-  //if(DEBUG)Serial.println(String("Next line read: ")+data);
+  if(DEBUG)Serial.println(String("Next line read: ")+data);
 
   //Delete this line by transfering all other lines to new file and deleting the current one and renaming the new one because why the hell not.....
   File tempFile = SPIFFS.open("/tempfile.txt","w+");
+  Serial.println("NEXT CHAR ON REFORMAT: "+currentFile.read());
   while (currentFile.available()) {
     tempFile.write(currentFile.read());
   }
@@ -1013,11 +1041,12 @@ String readRecordFromFile (int priority, boolean toFirebase){
   currentFile.close();
   tempFile.close();
   SPIFFS.remove(filename);
-  if(deleteTemp)
+  if(deleteTemp){
+    if(DEBUG)Serial.println("DELETING THE FILE!");
     SPIFFS.remove("/tempfile.txt");
-  else
+  }else{
     SPIFFS.rename("/tempfile.txt",filename);
-  
+  }
   return data;
 }
 
