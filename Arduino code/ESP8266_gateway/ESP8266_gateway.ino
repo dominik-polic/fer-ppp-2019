@@ -630,16 +630,15 @@ void checkFirebaseData() {
       //More than one packet is incomming...
       if (path == "/") {
         
-        //TODO - handle multiple packets here
-        
+        //TODO - handle multiple packets here!!!
+        if(DEBUG) Serial.println("Got this from fb: "+event.getString("data"));
       } else {
         String data = event.getString("data");
         if (data == "NOT-STRING") {
           if(DEBUG) Serial.println(String(F("ERROR PARSING DATA!!!! WRONG FORMAT AT PATH: ")) + path);
         } else {
           
-          //TODO - add this data to queue (path,data)
-          
+          addRecordToFile(path+"-"+splitString(data,':',0),splitString(data,':',1).toInt(),false);
           deleteFirebaseString(path);
         }
       }
@@ -755,8 +754,8 @@ void nRF24ToProcess(){  //Data for nRF24 in format {address}-{int_value}
   
   //Send priority 1
   while(data = readRecordFromFile(1,false),data != NO_FILE){
-    address = data.split("-")[0];
-    value = data.split("-")[1];
+    address = splitString(data,'-',0).toInt();
+    value = splitString(data,'-',1).toInt();
     if(!nRF24Send(address,value)){
       addRecordToFile(data,1,false);
       break;
@@ -765,8 +764,8 @@ void nRF24ToProcess(){  //Data for nRF24 in format {address}-{int_value}
 
   //Send priority 2
   while(data = readRecordFromFile(2,false),data != NO_FILE){
-    address = data.split("-")[0];
-    value = data.split("-")[1];
+    address = splitString(data,'-',0).toInt();
+    value = splitString(data,'-',1).toInt();
     if(!nRF24Send(address,value)){
       addRecordToFile(data,2,false);
       break;
@@ -775,8 +774,8 @@ void nRF24ToProcess(){  //Data for nRF24 in format {address}-{int_value}
   
   //Send priority 3
   while(data = readRecordFromFile(3,false),data != NO_FILE){
-    address = data.split("-")[0];
-    value = data.split("-")[1];
+    address = splitString(data,'-',0).toInt();
+    value = splitString(data,'-',1).toInt();
     nRF24Send(address,value);
     if(!nRF24Send(address,value)){
       addRecordToFile(data,3,false);
@@ -786,37 +785,6 @@ void nRF24ToProcess(){  //Data for nRF24 in format {address}-{int_value}
 
   
 }
-
-String readFromQueuenRF24(int* device_id){
-  //Read data from queue
-
-  //Set correct device_id
-  device_id = 0;
-
-  return "";
-}
-
-String readFromQueueWiFi(int* device_id){
-  //Read data from queue
-
-  //Set correct device_id
-  device_id = 0;
-
-  return "";
-}
-
-boolean availableQueuenRF24(){
-  //Check for data in nRF24 queue
-  
-  return false;
-}
-
-boolean availableQueueWiFi(){
-  //Check for data in WiFi queue
-  
-  return false;
-}
-
 
 void nRF24FromProcess(){
 
@@ -1042,4 +1010,21 @@ String readRecordFromFile (int priority, boolean toFirebase){
     SPIFFS.rename("/tempfile.txt",filename);
   
   return data;
+}
+
+//Helper function to split a string....
+String splitString(String data, char separator, int index)
+{
+    int found = 0;
+    int strIndex[] = { 0, -1 };
+    int maxIndex = data.length() - 1;
+
+    for (int i = 0; i <= maxIndex && found <= index; i++) {
+        if (data.charAt(i) == separator || i == maxIndex) {
+            found++;
+            strIndex[0] = strIndex[1] + 1;
+            strIndex[1] = (i == maxIndex) ? i+1 : i;
+        }
+    }
+    return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
 }
