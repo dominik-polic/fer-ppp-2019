@@ -11,7 +11,7 @@ This is the source code for the main gateway. Bellow is the description of its f
 The gateway is used to collect data from all available devices and send it to the firebase server. If internet connection is unavailable, all packets are sorted into 6 files in SPIFFS according to priority. Each priority has a separate file for packets comming from the server and packets going to the server making a total of 6 files. Those files are stored internali in the SPIFFS of the ESP8266 and are formated like this:
  - **From server to nodes**: 
  Every packet is appended as a single line to the bottom of the file. Pcket format is: {address}-{int_value}
- - **From nodes to server
+ - **From nodes to server**
  Every packet is appended as a single line to the bottom of the file. Packet format is: NODE{from_address}/{TIMESTAMP}-{JSON_PAYLOAD}
 
 When sending data to firebase the packet format is: NODE{from_address}/{TIMESTAMP} : {JSON_PAYLOAD} 
